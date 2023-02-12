@@ -1,0 +1,321 @@
+#!/usr/bin/tclsh
+
+interp recursionlimit {} 20000
+package require inifile
+package require cmdline
+
+set myoptions {
+            {c.arg "" "Config file name"}
+            {b.arg "" "Big pieces filen ame"}
+            {s.arg "" "Small pieces file name"}
+            {t      "print and sum the counts"}
+            {r      "print ranges for inspection"}
+            {e      "print the command file"}
+        }
+        set usage ": MyCommandName \[options] filename ...\noptions:"
+
+set myusage "[::cmdline::getArgv0] <-c configfilename> <-b> bigpiecesfilename> <-s smallpiecesfilename>"
+set myusage {}
+append myusage \n { -r (print ranges for inspection)]}
+append myusage \n { -c print range counts for inspection]}
+append myusage \n { -e print a command file}
+
+try {
+    array set cmdpars [::cmdline::getoptions argv $myoptions ""]
+    
+} trap {CMDLINE USAGE} {msg o} {
+            # Trap the usage signal, print the message, and exit the application.
+            # Note: Other errors are not caught and passed through to higher levels!
+	    puts $msg
+	    exit 1
+}
+
+if {![file exists $cmdpars(c)]} {
+    puts "config file $cmdpars(c) not found"
+    exit 1
+    }
+if {![file exists $cmdpars(b)]} {
+    puts "big pieces file $cmdpars(b) not found"
+    exit 1
+    }
+if {![file exists $cmdpars(s)]} {
+    puts "small pieces file $cmdpars(s) not found"
+    exit 1
+}
+
+try {
+    set cfg [::ini::open $cmdpars(c) r]
+    set mncmccmap      [::ini::get $cfg MNCMCCtoCCNDC]
+    array set cmdfilepars    [::ini::get $cfg CMDFILE]   
+    ::ini::close $cfg
+} trap {} res  {
+    puts $res
+    puts "There is an issue with the config file" 
+    exit 1
+}
+
+
+
+# Create the required routing table entries for a range
+proc range_squash { start end } {
+
+    if {$start == $end} {
+        return $start 
+    }
+    set output {}
+
+    set len [string length $start]
+
+    #calculate the base
+    set cnt 0
+    while {$cnt < $len} {
+        if {[string range $start 0 $cnt] != [string range $end 0 $cnt]} {
+            set baselen [expr $cnt -1]
+            break
+        }
+        incr cnt 1
+    }
+
+    set base  [string range $start 0 $baselen]
+    set left  [string trimright [string range $start $cnt end] 0]
+    set right [string trimright [string range $end   $cnt end] 9]
+   
+    while {[string length $left]  < [string length $right] } { append left  0}
+    while {[string length $right] < [string length $left]  } { append right 9}
+
+    if {$left == $right} { 
+        return [list $base$left ] 
+    }
+
+    set bigleft  [string range $left 0 0]
+    set bigright [string range $right 0 0]
+
+    if {[regexp {^0*$} $left]} {
+        set bigleft 0
+        set  left {}
+    }
+
+    if {[regexp {^9*$} $right]} {
+        if {$bigright < 9} { 
+            incr bigright 1
+        }
+        set right {}
+    }
+
+    while {$bigright >= $bigleft} {
+        lappend output $base$bigleft
+        incr bigleft 1
+    }
+    
+    while {[string length $left] >= 2} {
+        set digcnt [string range $left end end]
+        set left [string range $left 0 [expr [string length $left] - 2]]
+        while {$digcnt <= 9} {
+            lappend output $base$left$digcnt
+            incr digcnt
+        }
+    }
+    
+    while {[string length $right] >= 2} {
+        set digcnt [string range $right end end]
+        set right  [string range $right 0 [expr [string length $right] - 2]]
+        while {$digcnt >= 0} {
+            if {[lsearch -glob $output $base$right$digcnt?] < 0 } {
+                lappend output $base$right$digcnt
+            }
+            incr digcnt -1
+        }
+        if {[regexp {^0*$} $right]} {
+            set right 0
+        }
+    }
+    
+    set new_output {}
+    foreach entry $output { 
+        if {[lsearch -regexp $output ^$entry\[0-9\] ] < 0} {
+            lappend new_output $entry
+        }
+    }
+       
+    return $new_output
+}
+
+proc makearange {range} { 
+    global smallpieces
+    global ranges
+    lassign $range biggerfirst biggerlast biggergtrc
+    set count 0
+    set biggerlastplace $biggerfirst
+    foreach smallpiece $smallpieces {
+
+        lassign $smallpiece smallerfirst smallerlast smallergtrc
+
+        if {$smallerfirst < $biggerfirst || $smallerlast > $biggerlast } {
+            # The range don't fit so let it go
+            continue
+        }
+
+        if {$smallerfirst == $biggerfirst && $smallerlast == $biggerlast} {
+            #Range overlap
+            #puts "discard $smallpiece overlap"
+            continue
+        }
+
+        if {$smallergtrc == $biggergtrc} {
+            # This range goes to the same place as the containing range so skip it
+            #discard $smallpiece "same as containing"
+            continue
+        }
+        if {$smallerfirst >= $biggerfirst && $smallerlast <= $biggerlast } {
+
+            #The range fits, so process it
+        
+            if {$smallerfirst != $biggerfirst} {
+                if {[makearange    [list $biggerfirst [expr $smallerfirst - 1] $biggergtrc] ] == 0} {               
+                    lappend ranges [list $biggerfirst [expr $smallerfirst - 1] $biggergtrc]
+                }
+                incr count 1
+            }
+            
+            if {[makearange    [list $smallerfirst $smallerlast $smallergtrc] ] == 0} {
+                lappend ranges [list $smallerfirst $smallerlast $smallergtrc]
+            }
+            incr count 1
+
+            if {$smallerlast != $biggerlast} {
+                if {[makearange    [list [expr $smallerlast + 1] $biggerlast $biggergtrc] ] == 0} {
+                    lappend ranges [list [expr $smallerlast + 1] $biggerlast $biggergtrc]
+                }
+                incr count 1
+            }
+            set biggerfirst $biggerlast
+        }
+    }
+    return $count
+}
+
+#Utility to make the counters readable
+proc commify {num {sep ,}} {
+    while {[regsub {^([-+]?\d+)(\d\d\d)} $num "\\1$sep\\2" num]} {}
+    return $num
+}
+
+proc expand {str dig len} {
+    regsub -all {[^0-9]} $str {} str
+    while { [string length $str] < $len } { 
+        append str $dig
+    }
+    return $str
+}
+
+proc rangify {line len} {
+    if {[llength $line] == 2} { 
+        set start [expand [mccmncremap [lindex $line 0]] 0 $len ]
+        set end   [expand [mccmncremap [lindex $line 0]] 9 $len ]
+        set gtrc  [lindex $line 1]
+    } elseif {[llength $line] == 3} { 
+        set start [expand [mccmncremap [lindex $line 0]] 0 $len ]
+        set end   [expand [mccmncremap [lindex $line 1]] 0 $len ]
+        set gtrc  [lindex $line 2] 
+    } 
+    return [list $start $end $gtrc]
+}
+
+proc mccmncremap {text} {
+    global mncmccmap
+    foreach {from to} $mncmccmap {
+        regsub ^$from $text $to text
+    }
+    return $text
+}
+
+###############################################################################
+#
+# MAIN processing starts here
+#
+###############################################################################
+#use the first MCCMNC in the config file to determine MSIN length
+#  According to this place: https://imei.org/blog/imsi-number
+set msinlen [expr 15 - [string length [lindex $mncmccmap 0]]]
+#use the first CCNDC in the config file for ccndclen
+set ccndclen [string length [lindex $mncmccmap 1]]
+set worklen  [expr $msinlen + $ccndclen]
+
+set bigpieces {} 
+set bh [open $cmdpars(b)]
+while {[gets $bh line] >= 0} {
+    lappend bigpieces [rangify $line $worklen]
+}
+close $bh
+set bigpieces [lsort -index 0 $bigpieces]
+
+set smallpieces {} 
+set sh [open $cmdpars(s)]
+while {[gets $sh line] >= 0} {
+    lappend smallpieces [rangify $line $worklen]
+}
+close $sh
+set smallpieces [lsort -index 0 $smallpieces]
+
+set ranges {}
+foreach bigpiece $bigpieces {
+    if {[makearange $bigpiece] == 0} {
+        lappend ranges $bigpiece
+    }
+}
+
+if {$cmdpars(r)} {
+    set total 0
+    foreach range $ranges {
+        lassign $range start end gtrc
+        if {$cmdpars(t)} {
+            set size [expr $end - $start + 1]
+            incr total $size
+            puts [format {%14d %14d %-10s %15s} $start $end $gtrc [commify $size]]
+        } else {
+            puts [format {%14d %14d %-10s} $start $end $gtrc]
+        }
+    }
+    if {$cmdpars(t)} {
+        puts [format {%14s %14s %-10s %15s} "" "" "" [commify $total]]
+    }
+    puts ""
+}
+
+set output {}
+foreach range $ranges {
+    lassign $range start end gtrc 
+    foreach ns [range_squash $start $end] {
+        lappend output [list $ns $gtrc]
+    }
+}
+
+if {$cmdpars(e)} {
+    #Print a command file
+    set start $cmdfilepars(CMD):
+    set sep ""
+    foreach par [split $cmdfilepars(PARS) ,] {
+        append start $sep $par = $cmdfilepars($par)
+        set sep ,
+    }
+    foreach line [lsort -index 0 $output] {
+        lassign $line ns gtrc
+        puts $start,NS=$ns,GTRC=$gtrc\;
+    }
+} else {
+    #print only NS and GTRC 
+    set total 0
+    foreach line [lsort -index 0 $output] {
+        lassign $line ns gtrc
+        if {$cmdpars(t)} {
+            set size [expr int(pow(10,[expr 14 - [string length $ns]]))]
+            incr total $size
+            puts [format {%-15s %-8s %16s} $ns $gtrc [commify $size]]
+        } else {
+            puts [format {%-15s %-8s}      $ns $gtrc]
+        }
+    }
+    if {$cmdpars(t)} {
+        puts [format {%-15s %-8s %16s} "" "" "" [commify $total]]
+    }
+}
