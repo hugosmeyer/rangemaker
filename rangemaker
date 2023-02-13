@@ -157,7 +157,7 @@ proc makearange {range} {
 
         if {$smallerfirst == $biggerfirst && $smallerlast == $biggerlast} {
             #Range overlap
-            #puts "discard $smallpiece overlap"
+            #puts "WARNING $smallpiece overlaps $range"
             continue
         }
 
@@ -289,6 +289,57 @@ foreach range $ranges {
         lappend output [list $ns $gtrc]
     }
 }
+
+
+
+proc rtrim1 {ns} { 
+    return [string range $ns 0 [expr [string length $ns] -2 ]]
+}
+
+set newoutput $output
+set goagain 1
+while {$goagain == 1} {
+    set stack {}
+    set regns {}
+    set reggt {}
+    set regct 0
+    set output $newoutput 
+    set newoutput {}
+    set newlines {}
+    set goagain 0
+    foreach line $output {
+        lassign $line ns gt
+        if {$regns == {} } {
+            set regns [rtrim1 $ns]
+            set reggt $gt
+            set regct 0
+            lappend stack $line
+            continue
+        } 
+
+        if {[rtrim1 $ns] == $regns && $gt == $reggt} {
+            incr regct 1
+            lappend stack $line
+        } else {
+            lappend newoutput {*}$stack
+            set stack {}
+            lappend stack $line
+            set regns [rtrim1 $ns]
+            set reggt $gt
+            set regct 0
+        }
+        if {$regct == 9} {
+            lappend newoutput "$regns $reggt"
+            set stack {}
+            set regns {} 
+            set reggt {}
+            set goagain 1
+        }
+
+    }
+    lappend newoutput {*}$stack
+}
+set output $newoutput
 
 if {$cmdpars(e)} {
     #Print a command file
