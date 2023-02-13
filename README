@@ -1,5 +1,39 @@
 # rangemaker
-Create C7 NTP range entries for ranges with many exceptions using convenient inputs
+
+Create C7GSI commands with which to create routing entries for broken (and unbroken) ranges with many exceptions using convenient inputs.
+
+Ericsson C7 routing tables do not support LPM (Longest Prefix Match), instead, a very cumbersome and time consuming method of defining every portion of the range is required. This aims to reduce the effort required by allowing for a simple and flixible input format that will be translated to C7GSI commands required to effect the routing required.
+
+For example: NS:1212 GTRC:555 with the exception NS:1212001 GTRC:777 will result in the below:
+
+1212000 555
+1212001 777
+1212002 555
+1212003 555
+1212004 555
+1212005 555
+1212006 555
+1212007 555
+1212008 555
+1212009 555
+121201 555
+121202 555
+121203 555
+121204 555
+121205 555
+121206 555
+121207 555
+121208 555
+121209 555
+12121 555
+12122 555
+12123 555
+12124 555
+12125 555
+12126 555
+12127 555
+12128 555
+12129 555
 
 usage: rangemaker -b bigpieces.txt -s smallpieces.txt -c example_config.ini
     -r will print the ranges for verification
@@ -26,7 +60,7 @@ Small Pieces File:
         - FROM GTRC (TO will be set to the same value as FROM automatically)
         - FROM TO GTRC
    
-I was told that the E/// software requires NS values to be sequential and never overlap. Measuring the size of each and adding that up should always be 10,000,000,000 or 1,000,000,000 per range, based on MNC length. This is for you to check. The total is printed and no warnings will appear if it is wrong. If the ranges add up nicely it shows that there are no missing or overlapping pieces, that is, if there are no equal and opposite mistakes... It is your network, you need to be sure.
+I was told that the E/// software requires NS values to be sequential and never overlap. Measuring the size of each and adding that up should always be 10,000,000,000 or 1,000,000,000 per range, based on MNC length. This is for you to check. The total is printed and no warnings will appear if it is wrong. If the ranges add up nicely it shows that there are no missing or overlapping pieces only, it does not ensure correct routing. It is for you to test it until you trust it and then still check afterwards.
 
 How it works:
 
