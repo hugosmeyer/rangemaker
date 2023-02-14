@@ -244,6 +244,9 @@ set worklen  [expr $msinlen + $ccndclen]
 set bigpieces {} 
 set bh [open $cmdpars(b)]
 while {[gets $bh line] >= 0} {
+    if {[regexp {[^0-9 \t]} $line] || $line=={}} {
+        continue
+    }
     lappend bigpieces [rangify $line $worklen]
 }
 close $bh
@@ -252,6 +255,9 @@ set bigpieces [lsort -index 0 $bigpieces]
 set smallpieces {} 
 set sh [open $cmdpars(s)]
 while {[gets $sh line] >= 0} {
+    if {[regexp {[^0-9 \t]} $line] || $line=={}} {
+        continue
+    }
     lappend smallpieces [rangify $line $worklen]
 }
 close $sh
